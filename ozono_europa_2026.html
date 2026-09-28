@@ -29,11 +29,24 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);-web
 .sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 h1.x{font-family:var(--serif);font-weight:700;font-size:clamp(26px,4.6vw,42px);line-height:1.1;letter-spacing:-.01em;margin:0 0 10px;text-wrap:balance}
 .sub{font-size:clamp(15px,2vw,18px);line-height:1.45;color:var(--muted);margin:0 0 20px;max-width:64ch}
-.mapwrap{position:relative;width:100%;touch-action:pan-y}
-canvas{display:block;border-radius:2px}
-svg.over{position:absolute;inset:0;pointer-events:none;overflow:visible}
+.mapwrap{position:relative;width:100%;touch-action:pan-y;overflow:hidden;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.mapwrap.pannable{cursor:grab}
+.mapwrap.pannable:active{cursor:grabbing}
+.stage{position:absolute;inset:0;transform-origin:0 0;will-change:transform}
+.zoom{position:absolute;top:10px;left:10px;display:flex;flex-direction:column;z-index:6;border:1px solid var(--ink);background:#fff}
+.zoom button{appearance:none;background:#fff;color:var(--ink);border:0;width:36px;height:36px;font-family:var(--mono);font-size:19px;line-height:1;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center}
+.zoom button+button{border-top:1px solid var(--line)}
+.zoom button:hover:not(:disabled){background:#eef2f5}
+.zoom button:disabled{color:#b4bcc3;cursor:default}
+.zoom button:focus-visible{outline:2px solid var(--ink);outline-offset:-3px}
+.hint{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);background:rgba(20,33,43,.88);color:#fff;font-size:13px;padding:7px 12px;pointer-events:none;opacity:0;transition:opacity .2s;z-index:7;white-space:nowrap}
+.hint.on{opacity:1}
+@media (hover:none){.hint{display:none}}
+canvas{display:block}
+svg.over{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
 svg.over text{font-family:var(--sans);font-weight:500;fill:var(--ink);paint-order:stroke;stroke:#fff;stroke-width:3.2px;stroke-linejoin:round}
 svg.over circle{fill:var(--ink);stroke:#fff;stroke-width:1.3}
+.pin{position:absolute;width:16px;height:16px;margin:-8px 0 0 -8px;border:2px solid var(--ink);border-radius:50%;background:rgba(255,255,255,.4);box-shadow:0 0 0 2px #fff;pointer-events:none;display:none;z-index:4}
 .tip{position:absolute;pointer-events:none;background:#fff;border:1px solid var(--ink);padding:7px 10px 8px;font-size:13px;line-height:1.3;white-space:nowrap;display:none;z-index:5;box-shadow:0 2px 10px rgba(20,33,43,.18)}
 .tip .city{font-family:var(--serif);font-weight:600;font-size:15px;margin-bottom:2px}
 .tip .val{font-family:var(--mono);font-weight:500;font-size:15px}
@@ -74,8 +87,16 @@ svg.over circle{fill:var(--ink);stroke:#fff;stroke-width:1.3}
   <h1 class="sr">Il picco stagionale di ozono in superficie è più alto nell’Europa meridionale</h1>
 
   <div class="mapwrap" id="wrap">
-    <canvas id="cv" role="img" aria-label="Mappa dell’Europa con la media di picco stagionale dell’ozono in superficie (MDA8), 2026. I valori più alti si registrano nell’Europa meridionale, con il massimo tra Pianura Padana e arco alpino."></canvas>
-    <svg class="over" id="ov" aria-hidden="true"></svg>
+    <div class="stage" id="stage">
+      <canvas id="cv" role="img" aria-label="Mappa dell’Europa con la media di picco stagionale dell’ozono in superficie (MDA8), 2026. I valori più alti si registrano nell’Europa meridionale, con il massimo tra Pianura Padana e arco alpino."></canvas>
+      <svg class="over" id="ov" aria-hidden="true"></svg>
+    </div>
+    <div class="zoom" role="group" aria-label="Controlli zoom">
+      <button type="button" id="zin" aria-label="Ingrandisci">+</button>
+      <button type="button" id="zout" aria-label="Riduci" disabled>−</button>
+      <button type="button" id="zreset" aria-label="Vista iniziale" disabled>⤢</button>
+    </div>
+    <div class="hint" id="hint">Per zoomare: Ctrl (⌘ su Mac) + rotella</div>
     <div class="tip" id="tip"></div>
   </div>
 
@@ -86,7 +107,7 @@ svg.over circle{fill:var(--ink);stroke:#fff;stroke-width:1.3}
       <span class="a">Linea guida OMS</span>
       <span class="b">Obiettivo intermedio OMS meno restrittivo</span>
     </div>
-    <p class="note">Passa il mouse (o tocca) sulla mappa per leggere il valore. Seleziona una classe della legenda per evidenziarla.</p>
+    <p class="note">Passa il mouse sulla mappa (o toccala) per leggere il valore. Per ingrandire usa i pulsanti +/−, il doppio clic, il pizzico con due dita o Ctrl/⌘ + rotella; trascina per spostarti. Seleziona una classe della legenda per evidenziarla.</p>
   </section>
 
   <footer class="src"><p><b>Dati:</b> previsioni CAMS sulla composizione atmosferica globale (Copernicus Atmosphere Monitoring Service / ECMWF), griglia 0,4°; valori interpolati tra i punti griglia. MDA8 = massimo giornaliero della media mobile su 8 ore. Le soglie OMS sono quelle per il picco stagionale (60 µg/m³ linea guida, 100 µg/m³ obiettivo intermedio meno restrittivo). Elaborazione ilfattoquotidiano.it</p>
@@ -121,6 +142,7 @@ function sample(lon,lat){
   return ((a*(1-tx)+b*tx)*(1-ty)+(c*(1-tx)+d*tx)*ty)/10;
 }
 
+// [nome, lon, lat, lato etichetta]
 const CITIES=[
   ['Lisbona',-9.14,38.72,'r'],['Madrid',-3.70,40.42,'r'],['Parigi',2.35,48.86,'r'],
   ['Londra',-0.13,51.51,'r'],['Zurigo',8.54,47.38,'r'],['Milano',9.19,45.46,'l'],
@@ -129,48 +151,91 @@ const CITIES=[
   ['Kiev',30.52,50.45,'r'],['Riga',24.11,56.95,'r'],['Helsinki',24.94,60.17,'r'],
   ['Oslo',10.75,59.91,'r']
 ];
+// visibili da zoom ≥ 2
+const EXTRA1=[
+  ['Dublino',-6.26,53.35,'l'],['Edimburgo',-3.19,55.95,'r'],['Barcellona',2.17,41.39,'r'],
+  ['Marsiglia',5.37,43.30,'r'],['Lione',4.84,45.76,'l'],['Monaco',11.58,48.14,'r'],
+  ['Praga',14.42,50.08,'r'],['Budapest',19.04,47.50,'r'],['Zagabria',15.98,45.81,'r'],
+  ['Belgrado',20.46,44.82,'r'],['Sofia',23.32,42.70,'r'],['Copenaghen',12.57,55.68,'r'],
+  ['Stoccolma',18.07,59.33,'r'],['Tallinn',24.75,59.44,'r'],['Vilnius',25.28,54.69,'r']
+];
+// visibili da zoom ≥ 3.5
+const EXTRA2=[
+  ['Torino',7.69,45.07,'l'],['Genova',8.93,44.41,'l'],['Bologna',11.34,44.49,'r'],
+  ['Venezia',12.33,45.44,'r'],['Firenze',11.25,43.77,'r'],['Napoli',14.27,40.85,'r'],
+  ['Bari',16.87,41.12,'r'],['Palermo',13.36,38.12,'r'],['Cagliari',9.11,39.22,'r'],
+  ['Trieste',13.77,45.65,'r']
+];
 const FIT={type:'MultiPoint',coordinates:[[-25,66.6],[-25,40],[-10,36],[-6,35.9],[36,34.5],[48,41],[48,66],[30,71.3],[10,71.3],[-9.6,42]]};
+const KMAX=8;
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-const wrap=document.getElementById('wrap'),cv=document.getElementById('cv'),ov=document.getElementById('ov'),tip=document.getElementById('tip');
+const wrap=document.getElementById('wrap'),stage=document.getElementById('stage'),cv=document.getElementById('cv'),ov=document.getElementById('ov'),tip=document.getElementById('tip'),hint=document.getElementById('hint');
+const btnIn=document.getElementById('zin'),btnOut=document.getElementById('zout'),btnReset=document.getElementById('zreset');
 const ctx=cv.getContext('2d');
 const off=document.createElement('canvas');
 const proj=d3.geoConicConformal().parallels([38,58]).rotate([-14,0]);
 const path=d3.geoPath(proj,ctx);
-let W=0,H=0,dpr=1,cw=0,ch=0,cls=null,mask=null,active=null,pix=[];
+const pin=document.createElement('div'); pin.className='pin'; wrap.appendChild(pin);
 
-function layout(){
+let W=0,H=0,dpr=1,rdpr=1,cw=0,ch=0,rw=0,rh=0,cls=null,mask=null,active=null,pix=[];
+let s0=1,t0=[0,0];
+let committed={k:1,x:0,y:0}, cur={k:1,x:0,y:0}, commitT=null;
+let rsT;
+
+function hide(){tip.style.display='none';pin.style.display='none';}
+const clampView=v=>{
+  v.k=Math.min(KMAX,Math.max(1,v.k));
+  v.x=Math.min(0,Math.max(W-W*v.k,v.x));
+  v.y=Math.min(0,Math.max(H-H*v.k,v.y));
+  return v;
+};
+
+function setBase(){
   const w=Math.min(wrap.clientWidth,1000);
   if(!w) return;
   W=w; H=Math.round(W*(W<560?1.15:0.92));
   dpr=Math.min(window.devicePixelRatio||1,2);
+  rdpr=Math.min(dpr,1.5);
   cw=Math.round(W*dpr); ch=Math.round(H*dpr);
+  rw=Math.round(W*rdpr); rh=Math.round(H*rdpr);
   cv.width=cw; cv.height=ch; cv.style.width=W+'px'; cv.style.height=H+'px';
-  off.width=cw; off.height=ch;
+  off.width=rw; off.height=rh;
   wrap.style.height=H+'px';
   proj.fitExtent([[4,4],[W-4,H-4]],FIT);
-  // raster classi
-  cls=new Uint8Array(cw*ch).fill(255);
-  for(let y=0;y<ch;y++){
-    for(let x=0;x<cw;x++){
-      const p=proj.invert([(x+.5)/dpr,(y+.5)/dpr]);
+  s0=proj.scale(); t0=proj.translate().slice();
+  committed={k:1,x:0,y:0}; cur={k:1,x:0,y:0};
+  clearTimeout(commitT); commitT=null;
+  stage.style.transition='none'; stage.style.transform='none';
+  render();
+  updateUI();
+}
+
+function render(){
+  const k=committed.k;
+  proj.scale(s0*k).translate([t0[0]*k+committed.x,t0[1]*k+committed.y]);
+  hide();
+  cls=new Uint8Array(rw*rh).fill(255);
+  for(let y=0;y<rh;y++){
+    for(let x=0;x<rw;x++){
+      const p=proj.invert([(x+.5)/rdpr,(y+.5)/rdpr]);
       if(!p) continue;
       const v=sample(p[0],p[1]);
-      if(v===v) cls[y*cw+x]=classOf(v);
+      if(v===v) cls[y*rw+x]=classOf(v);
     }
   }
-  // maschera terra (per il tooltip)
-  const m=document.createElement('canvas'); m.width=cw; m.height=ch;
-  const mc=m.getContext('2d'); mc.setTransform(dpr,0,0,dpr,0,0);
+  const m=document.createElement('canvas'); m.width=rw; m.height=rh;
+  const mc=m.getContext('2d'); mc.setTransform(rdpr,0,0,rdpr,0,0);
   mc.fillStyle='#000'; mc.beginPath(); d3.geoPath(proj,mc)(GEO.land); mc.fill();
-  const md=mc.getImageData(0,0,cw,ch).data;
-  mask=new Uint8Array(cw*ch);
+  const md=mc.getImageData(0,0,rw,rh).data;
+  mask=new Uint8Array(rw*rh);
   for(let i=0;i<mask.length;i++) mask[i]=md[i*4+3]>128?1:0;
   paint(); cities();
 }
 
 function paint(){
   const oc=off.getContext('2d');
-  const img=oc.createImageData(cw,ch), d=img.data;
+  const img=oc.createImageData(rw,rh), d=img.data;
   for(let i=0;i<cls.length;i++){
     const k=cls[i]; if(k===255) continue;
     const c=CLASSES[k].rgb, o=i*4;
@@ -189,34 +254,42 @@ function draw(){
   ctx.fillRect(0,0,W,H);
   ctx.save();
   ctx.beginPath(); path(GEO.land); ctx.clip();
+  ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
   ctx.drawImage(off,0,0,W,H);
   ctx.restore();
   ctx.lineJoin='round';
+  const z=Math.sqrt(committed.k);
   ctx.beginPath(); path(GEO.borders);
-  ctx.strokeStyle='rgba(255,255,255,.7)'; ctx.lineWidth=.6; ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,.7)'; ctx.lineWidth=.6*Math.min(z,1.8); ctx.stroke();
   ctx.beginPath(); path(GEO.land);
-  ctx.strokeStyle='#2a3a48'; ctx.lineWidth=.7; ctx.stroke();
+  ctx.strokeStyle='#2a3a48'; ctx.lineWidth=.7*Math.min(z,1.8); ctx.stroke();
 }
 
 function cities(){
   ov.setAttribute('width',W); ov.setAttribute('height',H); ov.setAttribute('viewBox','0 0 '+W+' '+H);
-  const fs=W<560?10.5:13;
+  const k=committed.k, small=W<560;
+  const fs=small?10.5:13;
+  const list=CITIES.map(c=>[c,1]);
+  if(k>=2) EXTRA1.forEach(c=>list.push([c,.88]));
+  if(k>=3.5) EXTRA2.forEach(c=>list.push([c,.88]));
   let s=''; pix=[];
-  for(const [n,lo,la,side] of CITIES){
+  for(const [[n,lo,la,side],sc] of list){
     const p=proj([lo,la]); if(!p) continue;
+    if(p[0]<-10||p[0]>W+10||p[1]<-10||p[1]>H+10) continue;
     pix.push({n,x:p[0],y:p[1],v:sample(lo,la)});
-    const dx=side==='r'?7:-7, anc=side==='r'?'start':'end';
-    s+=`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${W<560?2.4:3.2}"/><text x="${(p[0]+dx).toFixed(1)}" y="${(p[1]+fs*.35).toFixed(1)}" text-anchor="${anc}" font-size="${fs}">${n}</text>`;
+    const dx=side==='r'?7:-7, anc=side==='r'?'start':'end', f=fs*sc;
+    s+=`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${((small?2.4:3.2)*sc).toFixed(1)}"/><text x="${(p[0]+dx).toFixed(1)}" y="${(p[1]+f*.35).toFixed(1)}" text-anchor="${anc}" font-size="${f.toFixed(1)}">${n}</text>`;
   }
   ov.innerHTML=s;
 }
 
-// legenda
+// ---------- legenda ----------
 const segs=document.getElementById('segs');
 CLASSES.forEach((c,i)=>{
   const b=document.createElement('button');
   b.className='seg'; b.type='button'; b.setAttribute('aria-pressed','false');
-  b.innerHTML=`<span class="bar" style="background:${hex(c)}"></span><span class="rg">${c.range}</span><span class="nm">${c.name.replace(' ','<br>')}</span>`;
+  b.innerHTML=`<span class="rg">${c.range}</span><span class="nm">${c.name.replace(' ','<br>')}</span>`;
+  b.insertAdjacentHTML('afterbegin',`<span class="bar" style="background:${hex(c)}"></span>`);
   const set=k=>{active=k;segs.querySelectorAll('.seg').forEach((s,j)=>s.setAttribute('aria-pressed',String(j===k)));paint();};
   b.addEventListener('click',()=>set(active===i?null:i));
   b.addEventListener('mouseenter',()=>{if(matchMedia('(hover:hover)').matches){active=i;paint();}});
@@ -224,30 +297,139 @@ CLASSES.forEach((c,i)=>{
   segs.appendChild(b);
 });
 
-// tooltip
-function show(e){
+// ---------- tooltip ----------
+function show(e,touch){
+  if(commitT) return;
   const r=cv.getBoundingClientRect();
   const x=e.clientX-r.left,y=e.clientY-r.top;
-  const ix=Math.min(cw-1,Math.max(0,Math.round(x*dpr))),iy=Math.min(ch-1,Math.max(0,Math.round(y*dpr)));
-  const i=iy*cw+ix;
-  if(!mask||!mask[i]||cls[i]===255){tip.style.display='none';return;}
-  const p=proj.invert([x,y]); const v=sample(p[0],p[1]); if(v!==v){tip.style.display='none';return;}
-  let city=null,bd=16;
+  const ix=Math.min(rw-1,Math.max(0,Math.round(x*rdpr))),iy=Math.min(rh-1,Math.max(0,Math.round(y*rdpr)));
+  const i=iy*rw+ix;
+  if(!mask||!mask[i]||cls[i]===255){hide();return;}
+  const p=proj.invert([x,y]); if(!p){hide();return;}
+  const v=sample(p[0],p[1]); if(v!==v){hide();return;}
+  let city=null,bd=touch?26:16;
   for(const c of pix){const dd=Math.hypot(c.x-x,c.y-y);if(dd<bd){bd=dd;city=c;}}
   const val=city&&city.v===city.v?city.v:v, k=classOf(val), c=CLASSES[k];
   tip.innerHTML=(city?`<div class="city">${city.n}</div>`:'')+`<div class="val">${Math.round(val)} µg/m³</div><div class="cl"><span class="sw" style="background:${hex(c)}"></span>${c.name}</div>`;
   tip.style.display='block';
   const tw=tip.offsetWidth,th=tip.offsetHeight;
-  let tx=x+14,ty=y+14; if(tx+tw>W) tx=x-tw-14; if(ty+th>H) ty=y-th-14;
-  tip.style.left=Math.max(0,tx)+'px'; tip.style.top=Math.max(0,ty)+'px';
+  let tx,ty;
+  if(touch){
+    const px=city?city.x:x, py=city?city.y:y;
+    pin.style.left=px+'px'; pin.style.top=py+'px'; pin.style.display='block';
+    tx=px-tw/2; ty=py-th-20; if(ty<0) ty=py+20;
+  }else{
+    tx=x+14; ty=y+14; if(tx+tw>W) tx=x-tw-14; if(ty+th>H) ty=y-th-14;
+  }
+  tx=Math.min(Math.max(0,tx),Math.max(0,W-tw)); ty=Math.max(0,ty);
+  tip.style.left=tx+'px'; tip.style.top=ty+'px';
 }
-wrap.addEventListener('pointermove',show);
-wrap.addEventListener('pointerdown',show);
-wrap.addEventListener('pointerleave',()=>{tip.style.display='none'});
 
-let t; const rerender=()=>{clearTimeout(t);t=setTimeout(layout,120)};
-new ResizeObserver(()=>{ if(Math.min(wrap.clientWidth,1000)!==W) rerender(); }).observe(wrap);
-layout();
+// ---------- zoom / pan ----------
+function updateUI(){
+  const k=committed.k;
+  btnIn.disabled=k>=KMAX-1e-6;
+  btnOut.disabled=k<=1+1e-6;
+  btnReset.disabled=k<=1+1e-6;
+  wrap.classList.toggle('pannable',k>1);
+  wrap.style.touchAction=k>1?'none':'pan-y';
+}
+function cssApply(anim){
+  const dk=cur.k/committed.k, dx=cur.x-dk*committed.x, dy=cur.y-dk*committed.y;
+  stage.style.transition=(anim&&!reduce)?'transform .18s ease-out':'none';
+  stage.style.transform=`translate(${dx}px,${dy}px) scale(${dk})`;
+}
+function scheduleCommit(ms){ clearTimeout(commitT); hide(); commitT=setTimeout(commit,ms); }
+function commit(){
+  commitT=null;
+  committed={k:cur.k,x:cur.x,y:cur.y};
+  stage.style.transition='none';
+  render();
+  stage.style.transform='none';
+  updateUI();
+}
+function zoomAbout(f,cx,cy,anim){
+  const k2=Math.min(KMAX,Math.max(1,cur.k*f));
+  if(Math.abs(k2-cur.k)<1e-6) return;
+  const r=k2/cur.k;
+  cur=clampView({k:k2,x:cx-(cx-cur.x)*r,y:cy-(cy-cur.y)*r});
+  cssApply(anim); scheduleCommit(anim?230:200);
+}
+btnIn.addEventListener('click',()=>zoomAbout(2,W/2,H/2,true));
+btnOut.addEventListener('click',()=>zoomAbout(.5,W/2,H/2,true));
+btnReset.addEventListener('click',()=>{
+  cur={k:1,x:0,y:0}; cssApply(true); scheduleCommit(230);
+});
+
+const ptrs=new Map(); let g=null;
+const pos=e=>{const r=wrap.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};};
+function startGesture(moved){
+  const a=[...ptrs.values()];
+  g={view:{k:cur.k,x:cur.x,y:cur.y},moved:!!moved,pinch:a.length>=2};
+  if(a.length>=2){
+    g.d0=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)||1;
+    g.m0={x:(a[0].x+a[1].x)/2,y:(a[0].y+a[1].y)/2};
+  }else if(a.length===1){ g.p0={x:a[0].x,y:a[0].y}; }
+}
+wrap.addEventListener('pointerdown',e=>{
+  if(e.target.closest('.zoom')) return;
+  if(e.pointerType==='mouse'&&e.button!==0) return;
+  const p=pos(e); ptrs.set(e.pointerId,{x:p.x,y:p.y,t:e.pointerType});
+  startGesture(ptrs.size>1);
+  if(cur.k>1||ptrs.size>1){ try{wrap.setPointerCapture(e.pointerId);}catch(_){} }
+});
+wrap.addEventListener('pointermove',e=>{
+  const pt=ptrs.get(e.pointerId);
+  if(!pt){ if(e.pointerType==='mouse') show(e,false); return; }
+  const p=pos(e); pt.x=p.x; pt.y=p.y;
+  if(!g) return;
+  const a=[...ptrs.values()];
+  if(a.length>=2){
+    const d=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)||1;
+    const m={x:(a[0].x+a[1].x)/2,y:(a[0].y+a[1].y)/2};
+    const k2=Math.min(KMAX,Math.max(1,g.view.k*d/g.d0)), r=k2/g.view.k;
+    cur=clampView({k:k2,x:m.x-(g.m0.x-g.view.x)*r,y:m.y-(g.m0.y-g.view.y)*r});
+    g.moved=true; cssApply(false); scheduleCommit(220);
+  }else{
+    const dx=p.x-g.p0.x, dy=p.y-g.p0.y;
+    if(g.view.k>1){
+      if(!g.moved&&Math.hypot(dx,dy)<(pt.t==='mouse'?3:8)) return;
+      g.moved=true;
+      cur=clampView({k:g.view.k,x:g.view.x+dx,y:g.view.y+dy});
+      cssApply(false); scheduleCommit(200);
+    }else if(pt.t==='mouse'){ show(e,false); }
+  }
+});
+function endPtr(e,cancel){
+  if(!ptrs.delete(e.pointerId)||!g) return;
+  if(ptrs.size===0){
+    const tap=!g.moved&&!g.pinch&&!cancel&&e.pointerType!=='mouse';
+    g=null;
+    if(tap) show(e,true);
+  }else startGesture(true);
+}
+wrap.addEventListener('pointerup',e=>endPtr(e,false));
+wrap.addEventListener('pointercancel',e=>endPtr(e,true));
+wrap.addEventListener('pointerleave',e=>{ if(e.pointerType==='mouse'&&!ptrs.size) hide(); });
+document.addEventListener('pointerdown',e=>{ if(!wrap.contains(e.target)) hide(); });
+
+let hintT=null;
+function flashHint(){ hint.classList.add('on'); clearTimeout(hintT); hintT=setTimeout(()=>hint.classList.remove('on'),1400); }
+wrap.addEventListener('wheel',e=>{
+  if(e.ctrlKey||e.metaKey){
+    e.preventDefault();
+    const p=pos(e);
+    zoomAbout(Math.exp(-e.deltaY*0.0025),p.x,p.y,false);
+  }else flashHint();
+},{passive:false});
+wrap.addEventListener('dblclick',e=>{
+  if(e.target.closest('.zoom')) return;
+  const p=pos(e); zoomAbout(2,p.x,p.y,true);
+});
+
+new ResizeObserver(()=>{ if(Math.min(wrap.clientWidth,1000)!==W){ clearTimeout(rsT); rsT=setTimeout(setBase,120);} }).observe(wrap);
+
+setBase();
 if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>cities());
 })();
 </script>
